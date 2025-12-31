@@ -785,15 +785,13 @@ class CatalogDockWidget(QDockWidget):
         self.bands_input.setPlaceholderText("e.g., B4,B3,B2 for RGB")
         vis_layout.addRow("Bands:", self.bands_input)
 
-        self.vis_min_spin = QDoubleSpinBox()
-        self.vis_min_spin.setRange(-1e10, 1e10)
-        self.vis_min_spin.setValue(0)
-        vis_layout.addRow("Min:", self.vis_min_spin)
+        self.vis_min_input = QLineEdit()
+        self.vis_min_input.setPlaceholderText("e.g., 0")
+        vis_layout.addRow("Min:", self.vis_min_input)
 
-        self.vis_max_spin = QDoubleSpinBox()
-        self.vis_max_spin.setRange(-1e10, 1e10)
-        self.vis_max_spin.setValue(3000)
-        vis_layout.addRow("Max:", self.vis_max_spin)
+        self.vis_max_input = QLineEdit()
+        self.vis_max_input.setPlaceholderText("e.g., 3000")
+        vis_layout.addRow("Max:", self.vis_max_input)
 
         self.palette_input = QLineEdit()
         self.palette_input.setPlaceholderText("e.g., blue,green,red or viridis")
@@ -1140,6 +1138,7 @@ class CatalogDockWidget(QDockWidget):
         if dataset:
             self._selected_dataset = dataset
             self._show_dataset_info(dataset)
+            self._reset_vis_params()
             self.add_map_btn.setEnabled(True)
             self.configure_btn.setEnabled(True)
         else:
@@ -1460,6 +1459,7 @@ class CatalogDockWidget(QDockWidget):
         if dataset:
             self._selected_dataset = dataset
             self._show_search_dataset_info(dataset)
+            self._reset_vis_params()
 
     def _on_search_result_double_clicked(self, item, _column):
         """Handle double-click on search result."""
@@ -1704,6 +1704,13 @@ class CatalogDockWidget(QDockWidget):
         else:
             return collection.mosaic()
 
+    def _reset_vis_params(self):
+        """Reset visualization parameters to default values."""
+        self.bands_input.clear()
+        self.vis_min_input.clear()
+        self.vis_max_input.clear()
+        self.palette_input.clear()
+
     def _build_vis_params(self, for_feature_collection: bool = False):
         """Build visualization parameters from UI inputs.
 
@@ -1714,14 +1721,38 @@ class CatalogDockWidget(QDockWidget):
 
         bands = self.bands_input.text().strip()
         if bands and not for_feature_collection:
-            vis_params["bands"] = [b.strip() for b in bands.split(",")]
+            # Strip whitespace and quotes from each band name, filter out empty values
+            vis_params["bands"] = [
+                b.strip().strip("\"'")
+                for b in bands.split(",")
+                if b.strip().strip("\"'")
+            ]
 
-        vis_min = self.vis_min_spin.value()
-        vis_max = self.vis_max_spin.value()
-        if (vis_min != 0 or vis_max != 0) and not for_feature_collection:
-            vis_params["min"] = vis_min
-            vis_params["max"] = vis_max
+        # Parse min/max values if provided
+        vis_min_text = self.vis_min_input.text().strip()
+        vis_max_text = self.vis_max_input.text().strip()
+        if not for_feature_collection:
+            vis_min = None
+            vis_max = None
 
+            if vis_min_text:
+                try:
+                    vis_min = float(vis_min_text)
+                    vis_params["min"] = vis_min
+                except ValueError:
+                    pass  # Skip if value is not a valid number
+
+            if vis_max_text:
+                try:
+                    vis_max = float(vis_max_text)
+                    vis_params["max"] = vis_max
+                except ValueError:
+                    pass  # Skip if value is not a valid number
+
+            # If both values are provided, enforce that max > min as in original behavior.
+            if vis_min is not None and vis_max is not None and vis_max <= vis_min:
+                vis_params.pop("min", None)
+                vis_params.pop("max", None)
         palette = self.palette_input.text().strip()
         if palette:
             # Check if it's a matplotlib colormap name
@@ -1729,7 +1760,12 @@ class CatalogDockWidget(QDockWidget):
             if palette_colors:
                 vis_params["palette"] = palette_colors
             else:
-                vis_params["palette"] = [p.strip() for p in palette.split(",")]
+                # Strip whitespace and quotes from each color, filter out empty values
+                vis_params["palette"] = [
+                    p.strip().strip("\"'")
+                    for p in palette.split(",")
+                    if p.strip().strip("\"'")
+                ]
 
         return vis_params
 
@@ -1909,19 +1945,34 @@ class CatalogDockWidget(QDockWidget):
             vis_parts = []
             bands = self.bands_input.text().strip()
             if bands:
-                band_list = [b.strip() for b in bands.split(",")]
+                band_list = [
+                    b.strip().strip("\"'")
+                    for b in bands.split(",")
+                    if b.strip().strip("\"'")
+                ]
                 vis_parts.append(f"'bands': {band_list}")
 
-            vis_min = self.vis_min_spin.value()
-            vis_max = self.vis_max_spin.value()
-            if vis_min != 0 or vis_max != 0:
-                vis_parts.append(f"'min': {vis_min}")
-                vis_parts.append(f"'max': {vis_max}")
+            vis_min_text = self.vis_min_input.text().strip()
+            vis_max_text = self.vis_max_input.text().strip()
+            if vis_min_text and vis_max_text:
+                try:
+                    vis_min = float(vis_min_text)
+                    vis_max = float(vis_max_text)
+                    if vis_max >= vis_min:
+                        vis_parts.append(f"'min': {vis_min}")
+                        vis_parts.append(f"'max': {vis_max}")
+                except ValueError:
+                    # Ignore invalid numeric visualization parameters; omit min/max
+                    pass
 
             palette = self.palette_input.text().strip()
             if palette:
                 if "," in palette:
-                    palette_list = [p.strip() for p in palette.split(",")]
+                    palette_list = [
+                        p.strip().strip("\"'")
+                        for p in palette.split(",")
+                        if p.strip().strip("\"'")
+                    ]
                     vis_parts.append(f"'palette': {palette_list}")
                 else:
                     vis_parts.append(f"'palette': '{palette}'  # matplotlib colormap")
@@ -1975,19 +2026,47 @@ class CatalogDockWidget(QDockWidget):
             vis_parts = []
             bands = self.bands_input.text().strip()
             if bands:
-                band_list = [b.strip() for b in bands.split(",")]
+                band_list = [
+                    b.strip().strip("\"'")
+                    for b in bands.split(",")
+                    if b.strip().strip("\"'")
+                ]
                 vis_parts.append(f"'bands': {band_list}")
 
-            vis_min = self.vis_min_spin.value()
-            vis_max = self.vis_max_spin.value()
-            if vis_min != 0 or vis_max != 0:
-                vis_parts.append(f"'min': {vis_min}")
-                vis_parts.append(f"'max': {vis_max}")
+            vis_min_text = self.vis_min_input.text().strip()
+            vis_max_text = self.vis_max_input.text().strip()
 
+            vis_min = None
+            vis_max = None
+
+            if vis_min_text:
+                try:
+                    vis_min = float(vis_min_text)
+                except ValueError:
+                    vis_min = None
+
+            if vis_max_text:
+                try:
+                    vis_max = float(vis_max_text)
+                except ValueError:
+                    vis_max = None
+
+            if vis_min is not None and vis_max is not None:
+                if vis_max > vis_min:
+                    vis_parts.append(f"'min': {vis_min}")
+                    vis_parts.append(f"'max': {vis_max}")
+            elif vis_min is not None:
+                vis_parts.append(f"'min': {vis_min}")
+            elif vis_max is not None:
+                vis_parts.append(f"'max': {vis_max}")
             palette = self.palette_input.text().strip()
             if palette:
                 if "," in palette:
-                    palette_list = [p.strip() for p in palette.split(",")]
+                    palette_list = [
+                        p.strip().strip("\"'")
+                        for p in palette.split(",")
+                        if p.strip().strip("\"'")
+                    ]
                     vis_parts.append(f"'palette': {palette_list}")
                 else:
                     vis_parts.append(f"'palette': '{palette}'  # matplotlib colormap")
