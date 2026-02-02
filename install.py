@@ -147,9 +147,11 @@ def main():
     script_dir = Path(__file__).parent.resolve()
     source_dir = script_dir / "gee_data_catalogs"
 
-    if not source_dir.exists():
-        print(f"Error: Plugin source directory not found: {source_dir}")
-        sys.exit(1)
+    if not args.remove and not source_dir.exists():
+        print(
+            f"Error: Plugin source directory not found: {source_dir}", file=sys.stderr
+        )
+        return 1
 
     # Get plugin directory
     if args.plugin_dir:
@@ -160,13 +162,14 @@ def main():
         except RuntimeError as e:
             print(f"Error: {e}")
             print("Please specify the plugin directory with --plugin-dir")
-            sys.exit(1)
+            return 1
 
     print(f"Platform: {sys.platform}")
     print(f"Plugin directory: {plugin_dir}")
     print(f"Plugin name: {args.name}")
     print()
 
+    success: bool
     if args.remove:
         success = remove_plugin(plugin_dir, args.name)
     else:
@@ -176,8 +179,6 @@ def main():
             print()
             print("=" * 60)
             print("Installation complete!")
-            print("=" * 60)
-            print()
             print("To use the plugin:")
             print("  1. Restart QGIS")
             print("  2. Go to Plugins -> Manage and Install Plugins...")
@@ -186,10 +187,12 @@ def main():
             print("Note: Make sure you have the following dependencies installed:")
             print("  - earthengine-api: pip install earthengine-api")
             print("  - qgis-geemap-plugin (recommended for full functionality)")
+            return 0
+        else:
+            print("=" * 60)
             print()
-
-    sys.exit(0 if success else 1)
+            return 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
